@@ -1,0 +1,9 @@
+Package: com.yg.hlcamswap
+Name: HLCamSwap
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: 货拉拉注册拍照替换插件（支持旋转/缩放/多图轮换）
+Maintainer: YG
+Author: YG
+Section: Tweaks
+Depends: mobilesubstrate
