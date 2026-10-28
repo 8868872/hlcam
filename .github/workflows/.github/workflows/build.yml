@@ -1,0 +1,45 @@
+name: Build HLCamSwap
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-13
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Theos
+        run: |
+          export THEOS=$HOME/theos
+          git clone --recursive https://github.com/theos/theos.git $THEOS
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
+          echo "$THEOS/bin" >> $GITHUB_PATH
+
+      - name: Install ldid
+        run: |
+          brew install ldid || true
+
+      - name: Build tweak
+        run: |
+          cd HLCamSwap
+          make clean || true
+          make package FINALPACKAGE=1
+        env:
+          THEOS: ${{ env.THEOS }}
+
+      - name: Collect deb
+        run: |
+          mkdir -p out
+          find . -name "*.deb" -exec cp {} out/ \;
+          ls -la out/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HLCamSwap-deb
+          path: out/*.deb
+          retention-days: 30
