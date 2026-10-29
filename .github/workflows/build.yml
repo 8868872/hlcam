@@ -6,7 +6,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  # ============ A: Linux（快） ============
+  build-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,11 +15,7 @@ jobs:
       - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y make git curl xz-utils libplist-utils libssl-dev clang llvm lld dpkg fakeroot
-          echo "=== dpkg-deb ==="
-          dpkg-deb --version | head -1
-          echo "=== fakeroot ==="
-          fakeroot --version | head -1
+          sudo apt-get install -y make git curl xz-utils libplist-utils libssl-dev dpkg fakeroot clang llvm lld
 
       - name: Setup Theos
         run: |
@@ -27,6 +24,31 @@ jobs:
           echo "THEOS=$THEOS" >> $GITHUB_ENV
           echo "$THEOS/bin" >> $GITHUB_PATH
 
+      - name: Try official toolchain
+        run: |
+          cd $THEOS
+          mkdir -p toolchain/linux
+          curl -L -f -o /tmp/tc.tar.xz "https://github.com/theos/toolchain/releases/latest/download/linux-x86_64.tar.xz" && \
+            tar -xf /tmp/tc.tar.xz -C toolchain/linux/ && echo "official toolchain OK" || echo "official toolchain FAILED"
+          ls -la toolchain/linux/ 2>/dev/null || true
+
+      - name: Fallback toolchain
+        run: |
+          TD=$THEOS/toolchain/linux/iphone/bin
+          if [ ! -x "$TD/clang" ]; then
+            echo "回退到系统 clang"
+            mkdir -p $TD
+            ln -sf $(which clang)    $TD/clang
+            ln -sf $(which clang++)  $TD/clang++
+            ln -sf $(which ar)       $TD/ar
+            ln -sf $(which ranlib)   $TD/ranlib
+            ln -sf $(which strip)    $TD/strip
+            LD64=$(find /usr -name "ld64.lld*" 2>/dev/null | head -1)
+            echo "ld64: $LD64"
+            [ -n "$LD64" ] && ln -sf "$LD64" $TD/ld
+          fi
+          ls -la $TD/ 2>/dev/null || echo "no toolchain"
+
       - name: iOS SDK
         run: |
           mkdir -p $THEOS/sdks
@@ -34,54 +56,73 @@ jobs:
           cp -r /tmp/sdks-master/*.sdk $THEOS/sdks/ || true
           ls $THEOS/sdks/
 
-      - name: Link toolchain
-        run: |
-          TD=$THEOS/toolchain/linux/iphone/bin
-          mkdir -p $TD
-          ln -sf $(which clang)    $TD/clang
-          ln -sf $(which clang++)  $TD/clang++
-          ln -sf $(which ar)       $TD/ar
-          ln -sf $(which ranlib)   $TD/ranlib
-          ln -sf $(which strip)    $TD/strip
-          LD64=$(which ld64.lld 2>/dev/null || find /usr -name "ld64.lld" 2>/dev/null | head -1)
-          [ -n "$LD64" ] && ln -sf "$LD64" $TD/ld && echo "ld64.lld linked"
-          ls -la $TD/
-
       - name: ldid
         run: |
           curl -L "https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid_linux_x86_64" -o /tmp/ldid
           sudo mv /tmp/ldid /usr/local/bin/ldid
           sudo chmod +x /usr/local/bin/ldid
-          ldid -v 2>&1 | head -2 || true
 
-      - name: Build tweak
+      - name: Build & Package
         run: |
           cd HLCamSwap
-          echo "=== make clean ==="
-          make clean 2>&1 || true
-          echo "=== make (compile) ==="
-          make 2>&1 | tail -30
-          echo "=== 编译产物 ==="
-          find . -name "*.dylib" -o -name "*.o" | head -10
+          make clean || true
+          echo "=== make ==="
+          make 2>&1 | tee /tmp/build.log | tail -40
+          echo "=== dylib ==="
+          find . -name "*.dylib" 2>/dev/null
+          echo "=== package ==="
+          make package FINALPACKAGE=1 2>&1 | tee /tmp/pkg.log | tail -40
+          echo "=== packages ==="
+          ls -la packages/ 2>/dev/null || echo "no packages"
 
-      - name: Package deb
+      - name: Collect
+        run: |
+          mkdir -p out
+          find . -name "*.deb" -exec cp -v {} out/ \; 2>/dev/null || true
+          cp /tmp/build.log /tmp/pkg.log out/ 2>/dev/null || true
+          ls -la out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb
+          path: out/
+          if-no-files-found: warn
+
+  # ============ B: macOS（稳，但可能排队） ============
+  build-macos:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Theos
+        run: |
+          export THEOS=$HOME/theos
+          git clone --recursive https://github.com/theos/theos.git $THEOS
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
+          echo "$THEOS/bin" >> $GITHUB_PATH
+
+      - name: Install ldid
+        run: brew install ldid || true
+
+      - name: Build & Package
         run: |
           cd HLCamSwap
-          echo "=== make package ==="
+          make clean || true
+          echo "=== make ==="
+          make 2>&1 | tail -40
+          echo "=== package ==="
           make package FINALPACKAGE=1 2>&1 | tail -40
-          echo "=== 查找 deb ==="
-          ls -la packages/ 2>/dev/null || echo "no packages dir"
-          find / -name "*.deb" -newer /tmp -not -path "*/apt/*" 2>/dev/null | head -10
+          echo "=== packages ==="
+          ls -la packages/ 2>/dev/null || echo "no packages"
 
       - name: Collect
         run: |
           mkdir -p out
           find . -name "*.deb" -exec cp -v {} out/ \;
-          echo "=== out 目录 ==="
           ls -la out/
 
       - uses: actions/upload-artifact@v4
         with:
-          name: HLCamSwap-deb
-          path: out/
+          name: macos-deb
+          path: out/*.deb
           if-no-files-found: warn
