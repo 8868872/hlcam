@@ -167,8 +167,6 @@ static UIImage *HLMakeReplacement(UIImage *original) {
 /// 用 swizzle 方式覆盖所有实现了该协议的类
 static void HLInstallPickerHook(void) {
     SEL sel = @selector(imagePickerController:didFinishPickingMediaWithInfo:);
-    Class meta = object_getClass([NSObject class]);
-
     unsigned int count = 0;
     Class *classes = objc_copyClassList(&count);
     int hooked = 0;
