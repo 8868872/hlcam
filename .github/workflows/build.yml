@@ -15,6 +15,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y make git curl xz-utils libplist-utils libssl-dev clang llvm lld
+          echo "--- 检查工具 ---"
+          ls -la /usr/bin/ld64.lld* 2>/dev/null || echo "ld64.lld not in /usr/bin"
+          ls -la /usr/lib/llvm-*/bin/ld64.lld 2>/dev/null || echo "not in llvm dir"
 
       - name: Setup Theos
         run: |
@@ -30,17 +33,29 @@ jobs:
           cp -r /tmp/sdks-master/*.sdk $THEOS/sdks/ || true
           ls $THEOS/sdks/
 
-      - name: Link clang into theos toolchain
+      - name: Link toolchain
         run: |
-          mkdir -p $THEOS/toolchain/linux/iphone/bin
-          ln -sf $(which clang)   $THEOS/toolchain/linux/iphone/bin/clang
-          ln -sf $(which clang++) $THEOS/toolchain/linux/iphone/bin/clang++
-          ln -sf $(which ld)      $THEOS/toolchain/linux/iphone/bin/ld
-          ln -sf $(which lld)     $THEOS/toolchain/linux/iphone/bin/ld.lld
-          ln -sf $(which ar)      $THEOS/toolchain/linux/iphone/bin/ar
-          ln -sf $(which ranlib)  $THEOS/toolchain/linux/iphone/bin/ranlib
-          ln -sf $(which strip)   $THEOS/toolchain/linux/iphone/bin/strip
-          ls -la $THEOS/toolchain/linux/iphone/bin/
+          TD=$THEOS/toolchain/linux/iphone/bin
+          mkdir -p $TD
+          ln -sf $(which clang)    $TD/clang
+          ln -sf $(which clang++)  $TD/clang++
+          ln -sf $(which ar)       $TD/ar
+          ln -sf $(which ranlib)   $TD/ranlib
+          ln -sf $(which strip)    $TD/strip
+          ln -sf $(which nm)       $TD/nm
+          ln -sf $(which objcopy)  $TD/objcopy 2>/dev/null || true
+          # 关键：用 ld64.lld 而不是 GNU ld
+          LD64=$(which ld64.lld 2>/dev/null || find /usr -name "ld64.lld" 2>/dev/null | head -1)
+          echo "找到 ld64.lld: $LD64"
+          if [ -n "$LD64" ]; then
+            ln -sf "$LD64" $TD/ld
+            ln -sf "$LD64" $TD/ld64
+            echo "已链接 ld64.lld"
+          else
+            echo "!! ld64.lld 未找到，尝试用 lld"
+            ln -sf $(which lld) $TD/ld
+          fi
+          ls -la $TD/
 
       - name: ldid
         run: |
@@ -52,7 +67,7 @@ jobs:
         run: |
           cd HLCamSwap
           make clean || true
-          make package FINALPACKAGE=1
+          make package FINALPACKAGE=1 2>&1 | tail -60
         env:
           THEOS: ${{ env.THEOS }}
 
