@@ -11,9 +11,25 @@ jobs:
           sudo apt-get install -y -qq clang llvm lld perl dpkg fakeroot curl
           git clone -q --depth 1 https://github.com/theos/logos.git /tmp/logos
           mkdir -p /tmp/inc
-          curl -sL https://raw.githubusercontent.com/theos/theos/master/include/substrate.h -o /tmp/inc/substrate.h
-          curl -sL https://raw.githubusercontent.com/theos/theos/master/include/CydiaSubstrate.h -o /tmp/inc/CydiaSubstrate.h 2>/dev/null || true
-          ls -la /tmp/inc/
+          cat > /tmp/inc/substrate.h << 'SUBEOF'
+          #ifndef SUBSTRATE_H
+          #define SUBSTRATE_H
+          #include <objc/runtime.h>
+          #include <stddef.h>
+          #ifdef __cplusplus
+          extern "C" {
+          #endif
+          void MSHookFunction(void *symbol, void *replace, void **result);
+          void MSHookMessageEx(Class _class, SEL message, IMP hook, IMP *old);
+          void *MSFindSymbol(void *image, const char *name);
+          void *MSGetImageByName(const char *file);
+          void MSHookMemory(void *target, const void *data, size_t size);
+          #ifdef __cplusplus
+          }
+          #endif
+          #endif
+          SUBEOF
+          cat /tmp/inc/substrate.h
           curl -sL https://github.com/theos/sdks/archive/master.tar.gz | tar xz -C /tmp
           SDK=$(ls -d /tmp/sdks-master/iPhoneOS*.sdk | sort -V | tail -1)
           echo "SDK=$SDK"
@@ -22,11 +38,11 @@ jobs:
           wc -l /tmp/T.m
           echo "=== 编译 ==="
           clang -c -x objective-c -target arm64-apple-ios15.0 -isysroot "$SDK" -I/tmp/inc -fobjc-arc -w /tmp/T.m -o /tmp/T.o
-          echo "exit=$?"
+          echo "compile_exit=$?"
           ls -la /tmp/T.o 2>/dev/null
           echo "=== 链接 ==="
           lld -flavor darwin -arch arm64 -platform_version ios 15.0 15.0 -syslibroot "$SDK" -dylib -install_name /Library/MobileSubstrate/DynamicLibraries/HLCamSwap.dylib -o /tmp/H.dylib /tmp/T.o -framework Foundation -framework UIKit -framework AVFoundation -framework Photos -framework WebKit -lobjc
-          echo "exit=$?"
+          echo "link_exit=$?"
           ls -la /tmp/H.dylib 2>/dev/null
           echo "=== 打包 ==="
           rm -rf /tmp/p && mkdir -p /tmp/p/DEBIAN /tmp/p/var/jb/Library/MobileSubstrate/DynamicLibraries
