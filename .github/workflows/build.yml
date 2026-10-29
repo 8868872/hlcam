@@ -9,17 +9,23 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq clang llvm lld perl dpkg fakeroot curl
-          git clone -q --depth 1 https://github.com/theos/theos.git /tmp/th
+          git clone -q --depth 1 https://github.com/theos/logos.git /tmp/logos
+          ls /tmp/logos/bin/
           curl -sL https://github.com/theos/sdks/archive/master.tar.gz | tar xz -C /tmp
           SDK=$(ls -d /tmp/sdks-master/iPhoneOS*.sdk | sort -V | tail -1)
           echo "SDK=$SDK"
           cd HLCamSwap
-          perl /tmp/th/bin/logos.pl Tweak.x > /tmp/T.m
+          perl /tmp/logos/bin/logos.pl Tweak.x > /tmp/T.m
+          echo "=== logos 输出行数 ==="
           wc -l /tmp/T.m
+          head -20 /tmp/T.m
+          echo "=== 编译 ==="
           clang -c -x objective-c -target arm64-apple-ios15.0 -isysroot "$SDK" -fobjc-arc -w /tmp/T.m -o /tmp/T.o
           ls -la /tmp/T.o
+          echo "=== 链接 ==="
           lld -flavor darwin -arch arm64 -platform_version ios 15.0 15.0 -syslibroot "$SDK" -dylib -install_name /Library/MobileSubstrate/DynamicLibraries/HLCamSwap.dylib -o /tmp/H.dylib /tmp/T.o -framework Foundation -framework UIKit -framework AVFoundation -framework Photos -framework WebKit -lobjc
           ls -la /tmp/H.dylib
+          echo "=== 打包 ==="
           rm -rf /tmp/p && mkdir -p /tmp/p/DEBIAN /tmp/p/var/jb/Library/MobileSubstrate/DynamicLibraries
           cp /tmp/H.dylib /tmp/p/var/jb/Library/MobileSubstrate/DynamicLibraries/
           printf '{\n Filter = {\n  Bundles = ( "com.lalamove.huolala.driver" );\n };\n}\n' > /tmp/p/var/jb/Library/MobileSubstrate/DynamicLibraries/HLCamSwap.plist
