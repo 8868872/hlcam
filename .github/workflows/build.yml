@@ -7,23 +7,36 @@ on:
 
 jobs:
   build:
-    runs-on: macos-13
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Theos
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make git curl xz-utils libplist-utils libssl-dev
+
+      - name: Setup Theos
         run: |
           export THEOS=$HOME/theos
           git clone --recursive https://github.com/theos/theos.git $THEOS
           echo "THEOS=$THEOS" >> $GITHUB_ENV
           echo "$THEOS/bin" >> $GITHUB_PATH
 
-      - name: Install ldid
+      - name: iOS SDK
         run: |
-          brew install ldid || true
+          mkdir -p $THEOS/sdks
+          curl -L https://github.com/theos/sdks/archive/master.tar.gz | tar xz -C /tmp
+          cp -r /tmp/sdks-master/*.sdk $THEOS/sdks/ || true
+          ls $THEOS/sdks/
 
-      - name: Build tweak
+      - name: ldid
+        run: |
+          curl -L "https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid_linux_x86_64" -o /tmp/ldid
+          sudo mv /tmp/ldid /usr/local/bin/ldid
+          sudo chmod +x /usr/local/bin/ldid
+
+      - name: Build
         run: |
           cd HLCamSwap
           make clean || true
@@ -31,15 +44,13 @@ jobs:
         env:
           THEOS: ${{ env.THEOS }}
 
-      - name: Collect deb
+      - name: Collect
         run: |
           mkdir -p out
           find . -name "*.deb" -exec cp {} out/ \;
           ls -la out/
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: HLCamSwap-deb
           path: out/*.deb
-          retention-days: 30
