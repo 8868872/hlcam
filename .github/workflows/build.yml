@@ -35,23 +35,22 @@ jobs:
           cd HLCamSwap
           perl /tmp/logos/bin/logos.pl Tweak.x > /tmp/T.m
           wc -l /tmp/T.m
-          echo "=== 编译 ==="
           clang -c -x objective-c -target arm64-apple-ios15.0 -isysroot "$SDK" -I/tmp/inc -fobjc-arc -w /tmp/T.m -o /tmp/T.o
           echo "compile_exit=$?"
           ls -la /tmp/T.o
-          echo "=== 链接（-undefined dynamic_lookup）==="
           lld -flavor darwin -arch arm64 -platform_version ios 15.0 15.0 -syslibroot "$SDK" -dylib -undefined dynamic_lookup -install_name /Library/MobileSubstrate/DynamicLibraries/HLCamSwap.dylib -o /tmp/H.dylib /tmp/T.o -framework Foundation -framework UIKit -framework AVFoundation -framework Photos -framework WebKit -framework CoreGraphics -lobjc
           echo "link_exit=$?"
           ls -la /tmp/H.dylib
-          echo "=== 打包 ==="
           rm -rf /tmp/p && mkdir -p /tmp/p/DEBIAN /tmp/p/var/jb/Library/MobileSubstrate/DynamicLibraries
           cp /tmp/H.dylib /tmp/p/var/jb/Library/MobileSubstrate/DynamicLibraries/
           printf '{\n Filter = {\n  Bundles = ( "com.lalamove.huolala.driver" );\n };\n}\n' > /tmp/p/var/jb/Library/MobileSubstrate/DynamicLibraries/HLCamSwap.plist
           printf 'Package: com.yg.hlcamswap\nName: HLCamSwap\nVersion: 1.0.0\nArchitecture: iphoneos-arm64\nMaintainer: YG\nSection: Tweaks\nDepends: mobilesubstrate\nDescription: Huolala cam swap\n' > /tmp/p/DEBIAN/control
           dpkg-deb -b /tmp/p /tmp/HLCamSwap.deb
-          mkdir -p out && cp /tmp/HLCamSwap.deb out/
-          ls -la out/
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp /tmp/HLCamSwap.deb "$GITHUB_WORKSPACE/out/"
+          echo "=== 产物 ==="
+          ls -la "$GITHUB_WORKSPACE/out/"
       - uses: actions/upload-artifact@v4
         with:
           name: deb
-          path: out/
+          path: out/*.deb
