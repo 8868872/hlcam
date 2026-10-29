@@ -6,15 +6,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y make git curl xz-utils libplist-utils libssl-dev dpkg fakeroot clang llvm lld
 
       - name: Setup Theos
         run: |
@@ -23,72 +18,22 @@ jobs:
           echo "THEOS=$THEOS" >> $GITHUB_ENV
           echo "$THEOS/bin" >> $GITHUB_PATH
 
-      - name: Locate ld64.lld
+      - name: Install ldid
         run: |
-          echo "=== 系统中所有 lld 工具 ==="
-          find /usr -name "*lld*" -type f 2>/dev/null | head -20
-          echo "=== dpkg lld 内容 ==="
-          dpkg -L lld 2>/dev/null | grep -i lld | head -20 || true
-          echo "=== 尝试直接调用 ==="
-          which ld64.lld || echo "which ld64.lld 失败"
-          ld64.lld --version 2>&1 | head -2 || echo "ld64.lld 执行失败"
-          echo "=== 尝试 lld ==="
-          which lld || true
-          lld -flavor darwin --version 2>&1 | head -3 || echo "lld darwin 失败"
+          brew install ldid || true
+          which ldid || echo "ldid not found, theos has bundled"
 
-      - name: Setup toolchain dir
-        run: |
-          TD=$THEOS/toolchain/linux/iphone/bin
-          mkdir -p $TD
-          ln -sf $(which clang)    $TD/clang
-          ln -sf $(which clang++)  $TD/clang++
-          ln -sf $(which ar)       $TD/ar
-          ln -sf $(which ranlib)   $TD/ranlib
-          ln -sf $(which strip)    $TD/strip
-          LD64=$(find /usr -name "ld64.lld*" -type f 2>/dev/null | head -1)
-          if [ -z "$LD64" ]; then LD64=$(which ld64.lld 2>/dev/null); fi
-          echo "LD64=[$LD64]"
-          if [ -n "$LD64" ]; then
-            ln -sf "$LD64" $TD/ld
-            ln -sf "$LD64" $TD/ld64
-            echo "已链接 $LD64"
-          else
-            echo "!!! 找不到 ld64.lld，创建 wrapper 用 lld -flavor darwin"
-            cat > $TD/ld << 'EOF'
-          #!/bin/bash
-          exec lld -flavor darwin "$@"
-          EOF
-            chmod +x $TD/ld
-          fi
-          ls -la $TD/ | head -20
-          readlink -f $TD/ld || echo "ld unresolved"
-
-      - name: iOS SDK
-        run: |
-          mkdir -p $THEOS/sdks
-          curl -L https://github.com/theos/sdks/archive/master.tar.gz | tar xz -C /tmp
-          cp -r /tmp/sdks-master/*.sdk $THEOS/sdks/ || true
-          ls $THEOS/sdks/ | head -5
-
-      - name: ldid
-        run: |
-          curl -L "https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid_linux_x86_64" -o /tmp/ldid
-          sudo mv /tmp/ldid /usr/local/bin/ldid
-          sudo chmod +x /usr/local/bin/ldid
-
-      - name: Build with COMPILER_PATH
+      - name: Build & Package
         run: |
           cd HLCamSwap
-          TD=$THEOS/toolchain/linux/iphone/bin
           make clean || true
-          echo "=== 用 COMPILER_PATH 强制 clang 找 $TD 里的工具 ==="
-          export COMPILER_PATH=$TD
-          export PATH=$TD:$PATH
-          make 2>&1 | tee /tmp/build.log | tail -40
+          echo "=== make ==="
+          make 2>&1 | tee /tmp/build.log | tail -50
           echo "=== dylib ==="
           find . -name "*.dylib" 2>/dev/null
           echo "=== package ==="
           make package FINALPACKAGE=1 2>&1 | tee /tmp/pkg.log | tail -30
+          echo "=== packages ==="
           ls -la packages/ 2>/dev/null || echo "no packages"
 
       - name: Collect
@@ -100,6 +45,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-deb
+          name: macos-deb
           path: out/
           if-no-files-found: warn
