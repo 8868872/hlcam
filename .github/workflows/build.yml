@@ -6,7 +6,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ============ A: Linux（快） ============
   build-linux:
     runs-on: ubuntu-latest
     steps:
@@ -24,30 +23,37 @@ jobs:
           echo "THEOS=$THEOS" >> $GITHUB_ENV
           echo "$THEOS/bin" >> $GITHUB_PATH
 
-      - name: Try official toolchain
-        run: |
-          cd $THEOS
-          mkdir -p toolchain/linux
-          curl -L -f -o /tmp/tc.tar.xz "https://github.com/theos/toolchain/releases/latest/download/linux-x86_64.tar.xz" && \
-            tar -xf /tmp/tc.tar.xz -C toolchain/linux/ && echo "official toolchain OK" || echo "official toolchain FAILED"
-          ls -la toolchain/linux/ 2>/dev/null || true
-
-      - name: Fallback toolchain
+      - name: Toolchain setup
         run: |
           TD=$THEOS/toolchain/linux/iphone/bin
-          if [ ! -x "$TD/clang" ]; then
-            echo "回退到系统 clang"
-            mkdir -p $TD
-            ln -sf $(which clang)    $TD/clang
-            ln -sf $(which clang++)  $TD/clang++
-            ln -sf $(which ar)       $TD/ar
-            ln -sf $(which ranlib)   $TD/ranlib
-            ln -sf $(which strip)    $TD/strip
-            LD64=$(find /usr -name "ld64.lld*" 2>/dev/null | head -1)
-            echo "ld64: $LD64"
-            [ -n "$LD64" ] && ln -sf "$LD64" $TD/ld
+          mkdir -p $TD
+          # 用系统 clang，但通过 -B 让它去 $TD 找链接器
+          ln -sf $(which clang)    $TD/clang
+          ln -sf $(which clang++)  $TD/clang++
+          ln -sf $(which ar)       $TD/ar
+          ln -sf $(which ranlib)   $TD/ranlib
+          ln -sf $(which strip)    $TD/strip
+          ln -sf $(which nm)       $TD/nm
+          # 关键：ld 必须指向 ld64.lld（Mach-O 链接器）
+          LD64=$(find /usr -name "ld64.lld*" -type f 2>/dev/null | head -1)
+          echo "找到 ld64.lld: $LD64"
+          if [ -z "$LD64" ]; then
+            echo "!! 系统没有 ld64.lld，尝试安装 lld-14"
+            sudo apt-get install -y lld-14 || true
+            LD64=$(find /usr -name "ld64.lld*" -type f 2>/dev/null | head -1)
           fi
-          ls -la $TD/ 2>/dev/null || echo "no toolchain"
+          if [ -n "$LD64" ]; then
+            ln -sf "$LD64" $TD/ld
+            ln -sf "$LD64" $TD/ld64
+            echo "✓ ld 已指向 ld64.lld"
+            $LD64 --version 2>&1 | head -3 || true
+          else
+            echo "!! ld64.lld 仍然找不到"
+          fi
+          echo "=== toolchain 目录 ==="
+          ls -la $TD/
+          echo "=== ld 解析 ==="
+          readlink -f $TD/ld 2>/dev/null || echo "unresolved"
 
       - name: iOS SDK
         run: |
@@ -62,16 +68,18 @@ jobs:
           sudo mv /tmp/ldid /usr/local/bin/ldid
           sudo chmod +x /usr/local/bin/ldid
 
-      - name: Build & Package
+      - name: Build
         run: |
           cd HLCamSwap
+          TD=$THEOS/toolchain/linux/iphone/bin
           make clean || true
-          echo "=== make ==="
-          make 2>&1 | tee /tmp/build.log | tail -40
+          echo "=== make (with -B toolchain dir) ==="
+          # -B 让 clang 从 $TD 找 ld
+          make CC="$TD/clang -B$TD" 2>&1 | tee /tmp/build.log | tail -40
           echo "=== dylib ==="
           find . -name "*.dylib" 2>/dev/null
           echo "=== package ==="
-          make package FINALPACKAGE=1 2>&1 | tee /tmp/pkg.log | tail -40
+          make package FINALPACKAGE=1 CC="$TD/clang -B$TD" 2>&1 | tee /tmp/pkg.log | tail -30
           echo "=== packages ==="
           ls -la packages/ 2>/dev/null || echo "no packages"
 
@@ -86,43 +94,4 @@ jobs:
         with:
           name: linux-deb
           path: out/
-          if-no-files-found: warn
-
-  # ============ B: macOS（稳，但可能排队） ============
-  build-macos:
-    runs-on: macos-13
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Theos
-        run: |
-          export THEOS=$HOME/theos
-          git clone --recursive https://github.com/theos/theos.git $THEOS
-          echo "THEOS=$THEOS" >> $GITHUB_ENV
-          echo "$THEOS/bin" >> $GITHUB_PATH
-
-      - name: Install ldid
-        run: brew install ldid || true
-
-      - name: Build & Package
-        run: |
-          cd HLCamSwap
-          make clean || true
-          echo "=== make ==="
-          make 2>&1 | tail -40
-          echo "=== package ==="
-          make package FINALPACKAGE=1 2>&1 | tail -40
-          echo "=== packages ==="
-          ls -la packages/ 2>/dev/null || echo "no packages"
-
-      - name: Collect
-        run: |
-          mkdir -p out
-          find . -name "*.deb" -exec cp -v {} out/ \;
-          ls -la out/
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-deb
-          path: out/*.deb
           if-no-files-found: warn
